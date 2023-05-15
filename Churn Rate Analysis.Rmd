@@ -1,0 +1,374 @@
+---
+title: "Churn Rate Analysis"
+author: "Namrah and Dutt"
+date: "2023-04-29"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#1.Project Objective
+
+ABC wireless INC is a telecom provider. The purpose of this project is to help address their customer churn rate issue. With the help of the company’s historical data, we aim to predict or identify customers who are likely to churn. Churn is basically the loss of customers to the competitor. This is a serious issue for telecom companies where the competition is cut-throat. Retaining a customer is less expensive than acquiring a new one. The task of our team is to apply analytics and help the management take appropriate decisions to reduce their churn rate and increase client retention.
+
+
+#2.Packages required for current project.
+
+```{r, warning = F, message=F}
+library("dplyr")
+library("magrittr")
+library("randomForestExplainer")
+library("ggplot2")
+library("tidyverse")
+library("randomForest")
+library("usmap")
+library("ggplot2")
+library("ggcorrplot")
+library("dlookr")
+library("corrplot")
+library("caret")
+```
+
+#3.Importing the dataset.
+```{r}
+churndata_df <- read.csv("/Users/duttthakkar/Desktop/Churn_Train.csv")
+summary(churndata_df)
+```
+#From  above we can observe that,  The following observations show significant NA values:
+#account_length
+#number_vmail_messages
+#total_day_minutes 
+#total_day_calls 
+#total_day_charge 
+#total_eve_minutes 
+#total_eve_calls 
+#total_eve_charge 
+#total_night_minutes
+#total_night_charge 
+#total_intl_minutes 
+#total_intl_calls 
+#total_intl_charge 
+#number_customer_service_calls
+
+
+#5.Negative value observation 
+```{r}
+churndata_df %>%
+  select(account_length, number_vmail_messages) %>%
+  summary()
+```
+#account_length has a range of values between -209 and 243. In this data set's domain, 'account_length' denotes the number of months a customer has had an account  assuming the account length is in months. As a result, any negative values in 'account_length' should be avoided.
+
+#number_vmail_messages shows the number of voice mail messages a customer has had, this number can not be in the negative. In the dataset ‘number_vmail_messages’ has values ranging from -10 to 51. Thus any negative value should be avoided. 
+
+# Other Missing Values in data 
+#NA refers to missing values. 16 out of of the 20 variables (columns) have NA values. It can be observed that 13 variables have about 200 ‘NA’ values while 2 have 301 and 1 has 501.
+
+#6.filtering and subsetting to compute the percentage of NAs accross all columns.
+```{r, warning = F, message=F}
+
+na_percent <- function(df, fmt = F) {
+  return (df %>%
+            is.na() %>%
+            colMeans() %>%
+            sapply(function(x) {
+              if (fmt) {
+                return(sprintf("%.5f%%", x * 100))
+              }
+              return (x)
+            })
+          )
+}
+na_percent_df <- na_percent(churndata_df) %>%
+  data_frame(Columns = names(.), `NA %` = .) %>%
+  mutate_at(
+    vars(`NA %`),
+    funs(round(. * 100, 2))
+  ) %>%
+  mutate(label = sprintf("%g%%", `NA %`)) %>%
+  arrange(desc(`NA %`))
+na_percent_df %>% select(-label) 
+```
+
+#The categorical variables such as state, area code, international plan, and total night calls (numerical variable) have no 'NA' values in the table above.
+
+
+#The below  bar chart gives a good graphical representation of the same.The major contribution of ‘NA’ comes from ‘account_length`, total_intl_calls and total_intl_minutes.
+```{r}
+plot_na_pareto(churndata_df)
+```
+
+# we further observe that 11 variables have an NA percentage of 6%. Below table shows only the variables that have NA in them. The code chunk removes columns that have an NA percentage of 0% and then only shows rows that have at least 1 NA value in them.
+
+
+#7.Data Cleaning:
+#Turning Negatives into Positives.To deal with those variables that have negative values in them, we use abs function.
+```{r, warning = F, message=F}
+
+churndata_df <- churndata_df %>%
+  mutate_at(.vars = vars(number_vmail_messages), .funs = funs(abs))
+summary(churndata_df)
+```
+
+#From the summary table, we can see that all our variables are positive except account_length.
+
+#Any NA in the dataset are always problematic to any machine learning momdel. These values either have to be imputed or removed completely. If the rows have 100% NA's, these would have no predictive power in them. Therefore it is better to remove these rows.
+#we have eliminated rows that have more than 75% of their elements ‘NA’ thus removing the rows that are unimportant. This way we can concentrate on imputing rows with less missing NA's.
+
+```{r}
+churndata_df_1 <- churndata_df[rowMeans(is.na(churndata_df)) <= 0.25,]
+summary(churndata_df_1)
+```
+
+#Visual presentation of how the NA values have changed:
+
+```{r}
+plot_na_pareto(churndata_df_1)
+```
+
+#From above we can observe that account length has 9.61 percent of the total, while 'total eve minutes' and 'total intl class' each have 3.22 percent.
+
+#We will be omitting account_length and state from our data set as they are categorical varibales and to change it to factors it wont give a accurate method.
+```{r}
+churndata_df_2 <- churndata_df_1 %>% select(-account_length)
+summary(churndata_df_2)
+```
+
+#From above the summary shows, the remaining NA values that needs to be imputed for further analysis.
+
+#8.Data Preparation:
+
+```{r warning = F}
+library("randomForest")
+```
+
+#Data Imputation:
+
+#Data Imputation using RandomForest
+
+#The NAs' imputation is updated using the proximity matrix from the randomForest. The imputed value for continuous predictors is the weighted average of the non-missing observations, with the weights being the proximities. For categorical predictors, the imputed value is the category with the largest average proximity. This process is iterated n times.
+
+
+```{r results = 'hide'}
+str(churndata_df_2)
+churndata_df_2$churn =as.factor(churndata_df_2$churn)
+churndata_df_2$state = as.factor(churndata_df_2$state)
+churndata_df_2$international_plan = as.factor(churndata_df_2$international_plan)
+churndata_df_2$voice_mail_plan =as.factor(churndata_df_2$voice_mail_plan)
+churndata_df_2$area_code = as.factor(churndata_df_2$area_code)
+churndata_df_2 = select(churndata_df_2,-c(area_code))
+rf_imputed <- rfImpute(churn ~ ., data = churndata_df_2)
+```
+
+#Checking the correlation of the imputed values to understand which model to apply:
+```{r}
+str(rf_imputed)
+churn_yes<-rf_imputed %>% filter(churn=='yes')
+churn_cor<- cor(churn_yes[, 5:18])  
+ggcorrplot(churn_cor, method = "circle", type = "lower", ggtheme = theme_classic)
+```
+
+
+#9.Data partition:
+```{r}
+set.seed(123)
+train_index<-createDataPartition(rf_imputed$churn, p=0.70, list = FALSE)
+train_set<-rf_imputed[train_index,]
+test_set<-rf_imputed[-train_index,]
+```
+
+#10.Model selection:
+```{r}
+model_glm<-glm(churn~., data = train_set[,-c(2)], family = "binomial")
+summary(model_glm)
+```
+
+#11:Evaluating The Accuracy of the glm model:
+```{r}
+library(pROC)
+churn_rf <- predict(model_glm, newdata = test_set, type = "response")
+roc_test <- roc(test_set$churn, churn_rf)
+roc_test
+
+plot(roc_test, col = "red", xlab = "False Positive", ylab = "True Positive")
+```
+
+#11.Model Prediction:
+
+#Plotting of glm model with customer to predict data to understand the cut-off value:
+```{r}
+#load("Customers_To_Predict.RData")
+```
+
+#Making The Prediction
+```{r}
+Churn_Prob <- predict(model_glm, newdata = test_set, type = "response")
+hist(Churn_Prob, 100)
+
+```
+
+
+#Churn_Prob contains all the probabilities (from 0 to 1) that a customer from the test set that customers will churn or not. The histogram above reveals the distribution of the probabilities of churn. The histogram tells us that most customers stayed (i.e. they did not churn). Since the frequency of a customer not churning was higher between the probabilities of 0.0 to 0.3, with the larger subset between 0.0 to 0.2. 
+
+#We get the "yes" and "no" churn replies for the 'Customers To Predict' dataframe by using the 0.2 churning threshold (cutoff).
+
+```{r}
+predicted_churn_status <- as.factor(churn_rf > 0.2)
+levels(predicted_churn_status)  <- list(no = "FALSE", yes = "TRUE")
+confusion_matrix <- table(predicted_churn_status, actual_churn_status = test_set$churn)
+confusionMatrix(confusion_matrix, positive = "yes")
+```
+
+
+```{r}
+load("/Users/duttthakkar/Desktop/Customers_To_Predict.RData")
+churn <- rep("no", nrow(Customers_To_Predict))
+churn[Churn_Prob > 0.2] = "yes"
+Customers_To_Predict$churn <- as.factor(churn)
+```
+
+```{r}
+calc.churn_rate <- function(churn) {
+  count_churn <- function(value) {
+    return (churn %>%
+              subset(churn == value) %>%
+              length())
+  }
+  num_yes <- count_churn("yes")
+  return(num_yes/length(churn) * 100)
+}
+state_churn_rate <- Customers_To_Predict %>%
+  select(state, churn) %>%
+  group_by(state) %>%
+  summarise(churn_rate = calc.churn_rate(churn))
+head(state_churn_rate)
+```
+
+
+
+#Visual presentation of states churn rates:
+```{r, warning = F, message=F}
+
+ggplot(state_churn_rate, aes(x = reorder(state, churn_rate),  y = churn_rate, fill = state)) +
+  geom_bar(stat = 'identity') +
+  coord_flip() +
+  theme_minimal() +
+  guides(fill = F) +
+  labs(x = "States", y = "Churn Rate", title = "Churn Rate of Customers per US State")
+```
+
+
+```{r}
+calc.churn_rate <- function(churn) {
+  count_churn <- function(value) {
+    return (churn %>%
+              subset(churn == value) %>%
+              length())
+  }
+  num_yes <- count_churn("yes")
+  return(num_yes/length(churn) * 100)
+}
+number_customer_service_calls_churn_rate <- Customers_To_Predict %>%
+  select(number_customer_service_calls, churn) %>%
+  group_by(number_customer_service_calls) %>% 
+  summarise(number_customer_service_calls_churn_rate = calc.churn_rate(churn)) %>% arrange(desc(number_customer_service_calls_churn_rate))
+head(number_customer_service_calls_churn_rate)
+```
+#Graphical representation. 
+```{r}
+calc.churn_rate <- function(churn) {
+  count_churn <- function(value) {
+    return(churn %>%
+             subset(churn == value) %>%
+             length())
+  }
+  num_yes <- count_churn("yes")
+  return(num_yes/length(churn) * 100)
+}
+
+churn_rates <- Customers_To_Predict %>%
+  select(number_customer_service_calls, churn) %>%
+  group_by(number_customer_service_calls) %>%
+  summarise(number_customer_service_calls_churn_rate = calc.churn_rate(churn)) %>%
+  arrange(number_customer_service_calls)
+
+barplot(churn_rates$number_customer_service_calls_churn_rate,
+        names.arg = churn_rates$number_customer_service_calls,
+        xlab = "Number of Customer Service Calls",
+        ylab = "Churn Rate (%)",
+        main = "Churn Rates by Number of Customer Service Calls",
+        col = "blue",
+        ylim = c(0, max(churn_rates$number_customer_service_calls_churn_rate) * 1.2))
+
+```
+
+```{r}
+calc.churn_rate <- function(churn) {
+  count_churn <- function(value) {
+    return (churn %>%
+              subset(churn == value) %>%
+              length())
+  }
+  num_yes <- count_churn("yes")
+  return(num_yes/length(churn) * 100)
+}
+total_intl_calls_churn_rate <- Customers_To_Predict %>%
+  select(total_intl_calls , churn) %>%
+  group_by(total_intl_calls) %>% 
+  summarise(total_intl_calls_churn_rate = calc.churn_rate(churn)) %>% arrange(desc(total_intl_calls_churn_rate))
+head(total_intl_calls_churn_rate)
+```
+
+
+```{r}
+calc.churn_rate <- function(churn) {
+  count_churn <- function(value) {
+    return (churn %>%
+              subset(churn == value) %>%
+              length())
+  }
+  num_yes <- count_churn("yes")
+  return(num_yes/length(churn) * 100)
+}
+total_day_calls_churn_rate <- Customers_To_Predict %>%
+  select(total_day_calls , churn) %>%
+  group_by(total_day_calls) %>% 
+  summarise(total_day_calls_churn_rate = calc.churn_rate(churn)) %>% arrange(desc(total_day_calls_churn_rate))
+head(total_day_calls_churn_rate)
+
+```
+# Graphical presentation of total_day_calls vs. total_day_calls_churn_rate
+
+```{r}
+calc_churn_rate <- function(churn) {
+  count_churn <- function(value) {
+    return(churn[churn == value] %>% length())
+  }
+  num_churned <- count_churn("yes")
+  return(num_churned / length(churn) * 100)
+}
+
+
+total_day_calls_churn_rate <- Customers_To_Predict %>%
+  select(total_day_calls, churn) %>%
+  group_by(total_day_calls) %>% 
+  summarise(churn_rate = calc_churn_rate(churn)) %>% 
+  arrange(total_day_calls)
+
+
+ggplot(total_day_calls_churn_rate, aes(x = total_day_calls, y = churn_rate)) + 
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(title = "Churn Rate by Total Day Calls",
+       x = "Total Day Calls",
+       y = "Churn Rate (%)") +
+  theme_minimal()
+```
+
+```{r}
+write.csv(Customers_To_Predict, file = "churned_data.csv")
+```
