@@ -1,0 +1,158 @@
+---
+title: "Regression Analytics"
+author: "Dutt Thakkar"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Question 1: Run the following code in R-studio to create two variables X and Y.
+
+```{r}
+set.seed(2017)
+X=runif(100)*10
+Y=X*4+3.45
+Y=rnorm(100)*0.29*Y+Y
+```
+
+##a: Plotting Y against X to determine if we can fit a linear model to explain Y based on X
+
+```{r}
+graph = plot(X,Y, main = "Y vs X")
+abline(lsfit(X, Y), col = "orange")
+
+#After examining the scatter plot, it can be concluded that we can fit a linear model to explain Y based on X
+```
+## b: Construct a simple linear model of Y based on X. Write the equation that explains Y based on X. What is the accuracy of this model?
+
+```{r}
+lm(Y~X)
+summary(lm(Y~X))
+
+#based on the results obtained from the summary, the value of X is estimated as 3.6108, P value is 2e-16 which is less than 5% so the value of X is significant, and the R squared value is 0.65 i.e. 65%. It can be said that the accuracy of this model is 65%.
+```
+## c: How the coefficient of determination R squared of the model above is related to the correlation coefficient of X and Y?
+
+```{r}
+Correlation <- cor(X,Y)
+Correlation
+coefficientofdetermination <- round(Correlation^2,4)
+coefficientofdetermination
+
+#Two variables, X and Y, have a linear relationship that can be quantified using the coefficient of determination (R-squared) and the correlation coefficient (r). The square of the correlation coefficient (r), in basic linear regression, when there is just one independent variable (X) and one dependent variable (Y), equals the coefficient of determination (R-squared). This means that the square of the correlation coefficient is connected to the R-squared value of the linear regression model between X and Y. For example, if the correlation between X and Y is r, then the R-squared value of the X-Y linear regression model is around r^2
+```
+
+#Question 2: We will use 'mtcars' dataset for this question.
+
+## a: Constructing a simple linear model using mtcars data to predict which factor estimates the horse power at its best; weight of the car or fuel consumption (mpg)
+
+```{r}
+#loading the dataset and viewing the summary
+data("mtcars")
+head(mtcars)
+summary(mtcars)
+```
+
+```{r}
+#constructing two separate linear models using two variable "wt" and "mpg"
+model_wt= lm(mtcars$hp ~ mtcars$wt)
+model_mpg=lm(mtcars$hp ~ mtcars$mpg)
+summary(model_wt)
+summary(model_mpg)
+```
+```{r}
+cat("r squared value for the weight model is 0.43 i.e. 43%, and for the fuel model is 0.60 i.e. 60%. After examining both the r squared values, it can be concluded that fuel (mpg) is a better predictor of horse power.")
+```
+
+##b: Build a model that uses the number of cylinders (cyl) and the mile per gallon (mpg) values of a car to predict the car Horse Power (hp). Using this model, what is the estimated Horse Power of a car with 4 cylinder and mpg of 22?
+
+```{r}
+#constructing a model for "cyl" and "mpg" 
+model_hp= lm(mtcars$hp ~ mtcars$cyl + mtcars$mpg)
+summary(model_hp)
+
+#using coef() to determine the horse power with 4 cylinder and mpg of 22, as the summary shows the results when the numbers of both cylinders and mpg is zero. 
+b0 = coef(model_hp)[1]
+b1 = coef(model_hp)[2]
+b3 = coef(model_hp)[3]
+hp_predict = b0 + b1*4 + b3*22
+hp_predict
+
+#OR
+
+model <- lm(hp ~ cyl + mpg, data = mtcars)
+new_data <- data.frame(cyl = 4, mpg = 22)
+prediction <- predict(model, newdata = new_data)
+prediction
+```
+
+```{r}
+cat("The estimated Horse Power of a car with 4 cylinder and mpg of 22 is 88.94")
+```
+
+#Question 3: we will use boston housing dataset from mlbench package
+
+```{r}
+#loading mlbench package and attaching the dataset
+library(mlbench)
+data("BostonHousing")
+head(BostonHousing)
+summary(BostonHousing)
+```
+## a: constructing a model to estimate the median value of owner-occupied homes (medv)based on the following variables: crime crate (crim), proportion of residential land zoned for lots over 25,000 sq.ft (zn), the local pupil-teacher ratio (ptratio) and bounds Chas River(chas)
+
+```{r}
+house_price= lm(medv ~ crim + zn + ptratio + chas, data = BostonHousing)
+summary(house_price)
+```
+```{r}
+#All the coefficients of the model are significant as the P values are less than 5%. The R squared value is 0.3599 i.e. 36%. It can be said that the model only explains 36% of the variation in the dependent variable, which means that there maybe other variables are not included in the model that are also important in predicting median value of owner-occupied homes. 
+```
+
+## b: Use the estimated coefficient to answer the i and ii
+
+### i: Imagine two houses that are identical in all aspects but one bounds the Chas River and the other does not. Which one is more expensive and by how much?
+
+```{r}
+# The linear model equation can be written as medv = 49.91868 - 0.26018 * crim + 0.07073 * zn - 1.49367 * ptratio + 4.58393 * chas
+# The coefficient for the variable "chas" is 4.58393, as seen in the model summary that is provided. All other things being equal, this means that, on average, a home that borders the Chas River (chas = 1) is linked to an increase in the median value of owner-occupied homes of $4,583.93 compared to a property that does not border the river (chas = 0). 
+```
+
+### ii: Imagine two houses that are identical in all aspects but in the neighborhood of one of them the pupil-teacher ratio is 15 and in the other one is 18. Which one is more expensive and by how much?
+
+```{r}
+# The coefficient for the variable "ptratio" is -1.49367, as shown in the model summary that is provided. This means that, when all other circumstances are held constant, a one-unit rise in the local pupil-teacher ratio is typically accompanied with a $1,493.67 fall in the median value of owner-occupied residences. 
+
+# Inferring that all other model variables are equivalent for both homes, it follows that the home with a pupil-teacher ratio of 15 would be more expensive than the home with a pupil-teacher ratio of 18. There is a 3 point discrepancy between the two houses' student-teacher ratios (18-15). As a result, the two homes' estimated median values would differ by: 3 * (-1.49367) = -4.48101
+
+# Hence, if all other factors in the model are equal for both homes, the home with the lower pupil-teacher ratio of 15 would cost $4,481.01 more than the home with a higher pupil-teacher ratio of 18. 
+```
+
+## c: Which of the variables are statistically important (i.e. related to the house price)?
+
+```{r}
+# The variables "crim", "zn", "ptratio", and "chas1" all are statistically significant in predicting the median value of owner-occupied homes, according to the model summary supplied. This is due to the fact that all of the p-values for the coefficients of these variables are less than 0.05
+
+# Specifically, the variables "crim" and "ptratio" have negative coefficients, indicating that an increase in these variables is associated with a decrease in median value of owner-occupied homes, while the variable "zn" and "chas1" has a positive coefficient, indicating that houses that bound the Charles River tend to have a higher median value of owner-occupied homes.
+```
+
+## d: Use the anova analysis and determine the order of importance of these four variables.
+
+```{r}
+anova(house_price)
+```
+```{r}
+# Based on the ANOVA table we can determine the order of importance by examining the F value. The more significant the variable is in explaining the variation in the response variable, the higher the F value. 
+
+#  we can see that the order of importance for the variables is:
+# crim = 118.007
+# ptratio = 86.287
+# zn = 65.122
+#chas = 12.224
+```
+
